@@ -73,3 +73,74 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Markdown inside assistant bubbles (.md) — compact hand-rolled set on CSS
+   variables, so it follows the theme; no typography plugin needed. */
+@layer components {
+  .md > :first-child {
+    margin-top: 0;
+  }
+  .md > :last-child {
+    margin-bottom: 0;
+  }
+  .md p {
+    @apply my-2 leading-relaxed;
+  }
+  .md h1,
+  .md h2,
+  .md h3,
+  .md h4 {
+    @apply mb-2 mt-4 font-semibold tracking-tight;
+  }
+  .md h1 {
+    @apply text-lg;
+  }
+  .md h2 {
+    @apply text-base;
+  }
+  .md h3,
+  .md h4 {
+    @apply text-[15px];
+  }
+  .md ul {
+    @apply my-2 list-disc pl-5;
+  }
+  .md ol {
+    @apply my-2 list-decimal pl-5;
+  }
+  .md li {
+    @apply my-1;
+  }
+  .md li > ul,
+  .md li > ol {
+    @apply my-1;
+  }
+  .md code {
+    @apply rounded bg-background/70 px-1 py-0.5 font-mono text-[13px];
+  }
+  .md pre {
+    @apply my-2 overflow-x-auto rounded-lg bg-background/70 p-3 text-[13px] leading-relaxed;
+  }
+  .md pre code {
+    @apply bg-transparent p-0;
+  }
+  .md blockquote {
+    @apply my-2 border-l-2 border-border pl-3 text-muted-foreground;
+  }
+  .md a {
+    @apply font-medium underline underline-offset-2;
+  }
+  .md table {
+    @apply my-2 block w-full border-collapse overflow-x-auto text-sm;
+  }
+  .md th,
+  .md td {
+    @apply border border-border px-2 py-1 text-left;
+  }
+  .md hr {
+    @apply my-3 border-border;
+  }
+  .md strong {
+    @apply font-semibold;
+  }
+}
