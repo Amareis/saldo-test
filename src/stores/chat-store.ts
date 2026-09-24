@@ -69,6 +69,23 @@ export class ChatStore extends Store<ChatState> {
     this.updateState({ messages: [] });
   }
 
+  /**
+   * Full reset: aborts generation mid-stream if needed (unlike guarded
+   * clear()), wipes history and draft, restores the real transport.
+   * Console/test hook — window.store.reset().
+   */
+  reset(): void {
+    this.abortController?.abort();
+    this.abortController = null;
+    this.transport = streamChat;
+    this.setState({ messages: [], phase: 'idle', draft: '' });
+  }
+
+  /** Test hook: the browser test panel drives the visible store on a fake. */
+  setTransport(transport: ChatTransport): void {
+    this.transport = transport;
+  }
+
   private async run(history: ChatMessage[]): Promise<void> {
     if (this.getSnapshot().phase !== 'idle') return;
 
