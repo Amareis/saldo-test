@@ -28,8 +28,11 @@ const MODEL = process.env.OPENROUTER_MODEL ?? 'nvidia/nemotron-3-super-120b-a12b
 // Overridable so the proxy can be integration-tested against a local mock
 const BASE_URL = process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1';
 
-const FIRST_BYTE_TIMEOUT_MS = 20_000; // waiting for the model to start answering
-const IDLE_TIMEOUT_MS = 30_000; // silence in the middle of a stream
+// Free models (especially reasoning ones like Nemotron) routinely stall:
+// queued at the provider, "thinking" without emitting. Timeouts must
+// tolerate that — 20s/30s here caused regular mid-chat drops.
+const FIRST_BYTE_TIMEOUT_MS = 60_000; // waiting for the model to start answering
+const IDLE_TIMEOUT_MS = 90_000; // silence in the middle of a stream
 
 /** Tiny .env parser so we don't need dotenv (KEY=value, # comments, optional quotes). */
 function loadEnvFile(file) {
@@ -66,13 +69,17 @@ app.post('/api/chat', async (req, res) => {
   if (!messages) {
     return sendHttpError(res, 400, 'bad_request', 'Body must be { messages: [{ role: "user"|"assistant", content: string }] }.');
   }
+  log(`[chat] -> ${MODEL}, messages=${messages.length}`);
 
   const upstream = new AbortController();
   // If the browser tab disconnects (Stop button, closed tab) — stop paying for tokens.
   // NB: listening to res, not req: in Node, req emits 'close' as soon as the
   // request body is fully consumed, which would abort the upstream call instantly.
   res.on('close', () => {
-    if (!res.writableEnded) upstream.abort(new Error('client disconnected'));
+    if (!res.writableEnded) {
+      log('[chat] client disconnected, aborting upstream');
+      upstream.abort(new Error('client disconnected'));
+    }
   });
 
   let upstreamRes;
@@ -87,10 +94,18 @@ app.post('/api/chat', async (req, res) => {
         'HTTP-Referer': process.env.APP_URL ?? 'http://localhost:8787',
         'X-Title': process.env.APP_NAME ?? 'saldo-test chat',
       },
-      body: JSON.stringify({ model: MODEL, messages, stream: true }),
+      body: JSON.stringify({
+        model: MODEL,
+        messages,
+        stream: true,
+        // Ask for reasoning tokens: without this, reasoning models "think"
+        // in total silence and the stream looks dead (idle watchdog fires).
+        reasoning: { enabled: true },
+      }),
     });
   } catch (err) {
     const isTimeout = err?.name === 'TimeoutError' || err?.name === 'AbortError';
+    log(`[chat] upstream call failed: ${err?.name ?? err}`);
     return sendHttpError(
       res,
       isTimeout ? 504 : 502,
@@ -103,12 +118,14 @@ app.post('/api/chat', async (req, res) => {
   // so the client can rely on response.ok.
   if (!upstreamRes.ok || !upstreamRes.body) {
     const { code, message, retryAfter } = await readUpstreamError(upstreamRes);
+    log(`[chat] upstream HTTP ${upstreamRes.status} (body code=${code ?? 'n/a'}): ${message}`);
     const isRateLimit = upstreamRes.status === 429 || code === 429;
     if (isRateLimit) return sendHttpError(res, 429, 'rate_limit', message, retryAfter);
     if (upstreamRes.status === 401 || upstreamRes.status === 403) return sendHttpError(res, 502, 'auth', message);
     if (upstreamRes.status === 408 || upstreamRes.status === 504) return sendHttpError(res, 504, 'timeout', message);
     return sendHttpError(res, 502, 'upstream', message);
   }
+  log('[chat] upstream streaming');
 
   // --- streaming phase ------------------------------------------------------
   res.writeHead(200, {
@@ -122,6 +139,7 @@ app.post('/api/chat', async (req, res) => {
   // leaving the user with an eternal spinner.
   let idleTimer = setTimeout(onIdleTimeout, IDLE_TIMEOUT_MS);
   function onIdleTimeout() {
+    log(`[chat] idle timeout (${IDLE_TIMEOUT_MS / 1000}s of silence)`);
     upstream.abort(new Error('stream idle timeout'));
     sendSse(res, { type: 'error', code: 'timeout', message: 'The model stopped responding mid-answer.' });
     res.end();
@@ -130,6 +148,7 @@ app.post('/api/chat', async (req, res) => {
   const decoder = new TextDecoder();
   let buffer = '';
   let streamFailed = false;
+  let totalChars = 0;
   try {
     for await (const chunk of upstreamRes.body) {
       if (res.writableEnded || streamFailed) break;
@@ -154,22 +173,38 @@ app.post('/api/chat', async (req, res) => {
         // OpenRouter can send an error object inside the stream itself —
         // forward it and end: an error followed by "done" is nonsense.
         if (json.error) {
+          log(`[chat] in-stream error: ${json.error?.code ?? ''} ${json.error?.message ?? ''}`);
           sendSse(res, normalizeStreamError(json.error));
           streamFailed = true;
           break;
         }
-        const text = json.choices?.[0]?.delta?.content;
-        if (text) sendSse(res, { type: 'delta', text });
+        const delta = json.choices?.[0]?.delta;
+        const text = delta?.content;
+        if (text) {
+          totalChars += text.length;
+          sendSse(res, { type: 'delta', text });
+        }
+        // Reasoning tokens travel separately from content — forward them too.
+        const reasoning =
+          delta?.reasoning ??
+          (Array.isArray(delta?.reasoning_details)
+            ? delta.reasoning_details.map((r) => r?.text ?? '').filter(Boolean).join('')
+            : '');
+        if (reasoning) sendSse(res, { type: 'reasoning', text: reasoning });
       }
     }
     if (!res.writableEnded) {
-      if (!streamFailed) sendSse(res, { type: 'done', model: MODEL });
+      if (!streamFailed) {
+        log(`[chat] done, ${totalChars} chars`);
+        sendSse(res, { type: 'done', model: MODEL });
+      }
       res.end();
     }
   } catch (err) {
     if (!res.writableEnded) {
       const abortedByClient = upstream.signal.aborted && String(upstream.signal.reason).includes('client');
       if (!abortedByClient) {
+        log(`[chat] upstream connection lost mid-answer: ${err?.name ?? err}`);
         sendSse(res, { type: 'error', code: 'network', message: 'The connection to the model was lost mid-answer.' });
       }
       res.end();
@@ -225,6 +260,11 @@ function sendHttpError(res, status, code, message, retryAfter) {
 
 function sendSse(res, payload) {
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+/** One log line per event — silent failures are how "connection dropped" mysteries happen. */
+function log(...args) {
+  console.log(new Date().toISOString(), ...args);
 }
 
 // --- static frontend (production build) ------------------------------------
