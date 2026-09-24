@@ -28,7 +28,7 @@ export default function Home({ onOpenTests, testsOpen }: HomeProps) {
   }, [phase, testsOpen]);
 
   return (
-    <div className="flex h-dvh flex-col bg-background text-foreground">
+    <div className="flex h-full flex-col bg-background text-foreground">
       <header className="border-b border-border">
         <div className="mx-auto flex h-14 w-full max-w-3xl items-center justify-between px-4">
           <div className="flex items-center gap-2.5">

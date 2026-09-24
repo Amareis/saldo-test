@@ -20,9 +20,13 @@ export default function App() {
   };
 
   return (
-    <>
-      <Home onOpenTests={() => setTestsOpen(true)} testsOpen={testsOpen} />
+    // Flex row: on desktop the open test panel squeezes the chat instead of
+    // covering it (on mobile the panel is an overlay — see TestPanel).
+    <div className="flex h-dvh">
+      <div className="min-w-0 flex-1">
+        <Home onOpenTests={() => setTestsOpen(true)} testsOpen={testsOpen} />
+      </div>
       <TestPanel open={testsOpen} onClose={closeTests} />
-    </>
+    </div>
   );
 }
