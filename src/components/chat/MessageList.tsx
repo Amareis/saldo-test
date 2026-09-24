@@ -1,0 +1,63 @@
+import { useEffect, useRef } from 'react';
+import type { ChatPhase } from '@/hooks/use-chat';
+import type { ChatMessage } from '@/types/chat';
+import { ChatMessageItem } from './ChatMessage';
+import { TypingIndicator } from './TypingIndicator';
+import { EmptyState } from './EmptyState';
+
+interface Props {
+  messages: ChatMessage[];
+  phase: ChatPhase;
+  onRetry: (id: string) => void;
+  onSuggestion: (text: string) => void;
+}
+
+export function MessageList({ messages, phase, onRetry, onSuggestion }: Props) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // Don't yank the scroll if the user scrolled up to read — only follow
+  // the stream while they're near the bottom.
+  const nearBottomRef = useRef(true);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && nearBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [messages, phase]);
+
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  };
+
+  if (messages.length === 0) {
+    return (
+      <div className="h-full overflow-y-auto">
+        <EmptyState onSuggestion={onSuggestion} />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={scrollRef}
+      onScroll={handleScroll}
+      className="h-full overflow-y-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+      tabIndex={0}
+      role="region"
+      aria-label="История диалога"
+    >
+      <ul role="log" aria-live="polite" aria-label="Сообщения" className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-6">
+        {messages.map((m) => (
+          <ChatMessageItem key={m.id} message={m} onRetry={onRetry} />
+        ))}
+        {phase === 'awaiting' && (
+          <li className="flex">
+            <TypingIndicator />
+          </li>
+        )}
+      </ul>
+    </div>
+  );
+}
