@@ -10,7 +10,10 @@
     "build": "tsc -b && vite build",
     "start": "node server/index.js",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "npm run test:server && npm run test:logic",
+    "test:server": "node --test tests/server.test.mjs",
+    "test:logic": "tsx tests/run-logic.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
