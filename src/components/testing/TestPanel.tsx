@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircle2,
   XCircle,
@@ -72,7 +72,7 @@ export function TestPanel({ open, onClose }: TestPanelProps) {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [open, onClose]);
 
-  const makeCtx = (): TestContext => {
+  const makeCtx = useCallback((): TestContext => {
     // Checkpoints serialize into one lane: a test may hit its own checkpoint
     // while its scripted transport is still parked on an earlier one — without
     // a queue the banners would race and the transport would never resume.
@@ -104,14 +104,17 @@ export function TestPanel({ open, onClose }: TestPanelProps) {
         return turn;
       },
     };
-  };
+  }, []); // refs, setState and module singletons only — all stable
 
-  const run = async (entry: TestCase) => {
-    const result = await runOne(entry, makeCtx());
-    setResults((m) => new Map(m).set(entry.name, result));
-  };
+  const run = useCallback(
+    async (entry: TestCase) => {
+      const result = await runOne(entry, makeCtx());
+      setResults((m) => new Map(m).set(entry.name, result));
+    },
+    [makeCtx],
+  );
 
-  const finishRun = () => {
+  const finishRun = useCallback(() => {
     // Real transport back; demoed messages stay visible for inspection, but
     // composer debris from scenarios (e.g. the guards test's draft) is wiped.
     // stop() unwinds a leaked in-flight run (e.g. the user clicked the real
@@ -122,19 +125,22 @@ export function TestPanel({ open, onClose }: TestPanelProps) {
     chatStore.setDraft('');
     setRunning(null);
     setForceExpanded(false);
-  };
+  }, []);
 
-  const runGuarded = async (entry: TestCase) => {
-    if (running) return;
-    setRunning(entry.name);
-    try {
-      await run(entry);
-    } finally {
-      finishRun();
-    }
-  };
+  const runGuarded = useCallback(
+    async (entry: TestCase) => {
+      if (running) return;
+      setRunning(entry.name);
+      try {
+        await run(entry);
+      } finally {
+        finishRun();
+      }
+    },
+    [running, run, finishRun],
+  );
 
-  const runEverything = async () => {
+  const runEverything = useCallback(async () => {
     if (running) return;
     setRunning('*');
     setResults(new Map());
@@ -143,15 +149,15 @@ export function TestPanel({ open, onClose }: TestPanelProps) {
     } finally {
       finishRun();
     }
-  };
+  }, [running, run, finishRun]);
 
-  if (!open) return null;
-
-  const tests = getTests();
-  const passed = [...results.values()].filter((r) => r.ok).length;
+  const tests = useMemo(() => getTests(), []);
+  const passed = useMemo(() => [...results.values()].filter((r) => r.ok).length, [results]);
   const inFlight = running !== null || paused !== null;
   // Mobile-only collapse (sm: overrides keep the desktop panel always full).
   const collapsed = inFlight && !forceExpanded;
+
+  if (!open) return null;
 
   return (
     <aside
