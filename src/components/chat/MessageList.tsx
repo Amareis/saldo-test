@@ -1,18 +1,12 @@
 import { useEffect, useRef } from 'react';
-import type { ChatPhase } from '@/hooks/use-chat';
-import type { ChatMessage } from '@/types/chat';
+import { chatStore } from '@/stores/chat-store';
+import { useStore } from '@/lib/use-store';
 import { ChatMessageItem } from './ChatMessage';
 import { TypingIndicator } from './TypingIndicator';
 import { EmptyState } from './EmptyState';
 
-interface Props {
-  messages: ChatMessage[];
-  phase: ChatPhase;
-  onRetry: (id: string) => void;
-  onSuggestion: (text: string) => void;
-}
-
-export function MessageList({ messages, phase, onRetry, onSuggestion }: Props) {
+export function MessageList() {
+  const { messages, phase } = useStore(chatStore);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Don't yank the scroll if the user scrolled up to read — only follow
   // the stream while they're near the bottom.
@@ -34,7 +28,7 @@ export function MessageList({ messages, phase, onRetry, onSuggestion }: Props) {
   if (messages.length === 0) {
     return (
       <div className="h-full overflow-y-auto">
-        <EmptyState onSuggestion={onSuggestion} />
+        <EmptyState onSuggestion={(text) => chatStore.setDraft(text)} />
       </div>
     );
   }
@@ -50,7 +44,7 @@ export function MessageList({ messages, phase, onRetry, onSuggestion }: Props) {
     >
       <ul role="log" aria-live="polite" aria-label="Сообщения" className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-6">
         {messages.map((m) => (
-          <ChatMessageItem key={m.id} message={m} onRetry={onRetry} />
+          <ChatMessageItem key={m.id} message={m} />
         ))}
         {phase === 'awaiting' && (
           <li className="flex">

@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { MessageSquarePlus, Bot } from 'lucide-react';
-import { useChat } from '@/hooks/use-chat';
+import { chatStore } from '@/stores/chat-store';
+import { useStore } from '@/lib/use-store';
 import { MessageList } from '@/components/chat/MessageList';
 import { Composer } from '@/components/chat/Composer';
 
 export default function Home() {
-  const { messages, phase, send, stop, retry, clear } = useChat();
-  const [draft, setDraft] = useState('');
+  const { messages, phase } = useStore(chatStore);
 
   // Esc stops generation no matter where the focus is.
   useEffect(() => {
@@ -14,20 +14,12 @@ export default function Home() {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        stop();
+        chatStore.stop();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [phase, stop]);
-
-  const handleSend = useCallback(
-    (text: string) => {
-      send(text);
-      setDraft('');
-    },
-    [send],
-  );
+  }, [phase]);
 
   return (
     <div className="flex h-dvh flex-col bg-background text-foreground">
@@ -42,7 +34,7 @@ export default function Home() {
           {messages.length > 0 && (
             <button
               type="button"
-              onClick={clear}
+              onClick={() => chatStore.clear()}
               disabled={phase !== 'idle'}
               className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
@@ -54,10 +46,10 @@ export default function Home() {
       </header>
 
       <main className="min-h-0 flex-1">
-        <MessageList messages={messages} phase={phase} onRetry={retry} onSuggestion={setDraft} />
+        <MessageList />
       </main>
 
-      <Composer value={draft} phase={phase} onChange={setDraft} onSend={handleSend} onStop={stop} />
+      <Composer />
     </div>
   );
 }

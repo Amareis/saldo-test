@@ -1,13 +1,9 @@
 import { AlertCircle, RotateCcw } from 'lucide-react';
 import type { ChatMessage } from '@/types/chat';
+import { chatStore } from '@/stores/chat-store';
 import { cn } from '@/lib/utils';
 
-interface Props {
-  message: ChatMessage;
-  onRetry: (id: string) => void;
-}
-
-export function ChatMessageItem({ message, onRetry }: Props) {
+export function ChatMessageItem({ message }: { message: ChatMessage }) {
   const isUser = message.role === 'user';
 
   return (
@@ -43,10 +39,10 @@ export function ChatMessageItem({ message, onRetry }: Props) {
         <div role="alert" className="mt-2 flex max-w-[85%] items-start gap-2.5 rounded-xl border border-destructive/30 bg-destructive/10 px-3.5 py-2.5 text-sm">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
           <div className="space-y-1.5">
-            <p className="text-foreground">{errorText(message.error.code, message.error.message, message.error.retryAfter)}</p>
+            <ErrorText code={message.error.code} message={message.error.message} retryAfter={message.error.retryAfter} />
             <button
               type="button"
-              onClick={() => onRetry(message.id)}
+              onClick={() => chatStore.retry(message.id)}
               className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-xs font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
@@ -60,21 +56,37 @@ export function ChatMessageItem({ message, onRetry }: Props) {
 }
 
 /** Human-readable states per failure kind — no eternal spinners, no silent deaths. */
-function errorText(code: string, fallback: string, retryAfter?: number): string {
+function ErrorText({ code, message, retryAfter }: { code: string; message: string; retryAfter?: number }) {
   switch (code) {
     case 'rate_limit':
-      return retryAfter
-        ? `Бесплатная модель сейчас перегружена (429). Попробуйте через ~${retryAfter} сек.`
-        : 'Бесплатная модель сейчас перегружена (429). Подождите немного и повторите.';
+      return (
+        <p className="text-foreground">
+          {retryAfter
+            ? `Бесплатная модель сейчас перегружена (429). Попробуйте через ~${retryAfter} сек.`
+            : 'Бесплатная модель сейчас перегружена (429). Подождите немного и повторите.'}
+        </p>
+      );
     case 'timeout':
-      return 'Модель не ответила вовремя. Ваше сообщение сохранено — можно просто повторить.';
+      return <p className="text-foreground">Модель не ответила вовремя. Ваше сообщение сохранено — можно просто повторить.</p>;
     case 'network':
-      return 'Соединение оборвалось. Проверьте сеть и повторите.';
+      return <p className="text-foreground">Соединение оборвалось. Проверьте сеть и повторите.</p>;
     case 'no_key':
-      return 'На сервере не настроен ключ OpenRouter: скопируйте .env.example в .env и добавьте OPENROUTER_API_KEY.';
+      return <p className="text-foreground">На сервере не настроен ключ OpenRouter: скопируйте .env.example в .env и добавьте OPENROUTER_API_KEY.</p>;
     case 'auth':
-      return 'Ключ OpenRouter отклонён. Проверьте OPENROUTER_API_KEY в .env на сервере.';
+      return <p className="text-foreground">Ключ OpenRouter отклонён. Проверьте OPENROUTER_API_KEY в .env на сервере.</p>;
     default:
-      return fallback;
+      // Unknown/untyped failure: stay calm, hide the gory details under a spoiler.
+      // <details> is natively keyboard-accessible — no custom button needed.
+      return (
+        <div className="space-y-1">
+          <p className="text-foreground">Что-то пошло не так. Попробуйте повторить запрос.</p>
+          <details className="text-xs text-muted-foreground">
+            <summary className="cursor-pointer select-none rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              Технические детали
+            </summary>
+            <pre className="mt-1 max-w-full overflow-x-auto whitespace-pre-wrap break-all rounded bg-background/60 p-2">{message}</pre>
+          </details>
+        </div>
+      );
   }
 }
