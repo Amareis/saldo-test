@@ -4,10 +4,8 @@ import './index.css'
 import App from './App.tsx'
 import { chatStore } from './stores/chat-store'
 
-// Dev console access: __chatStore.getSnapshot(), __chatStore.send('...') etc.
-if (import.meta.env.DEV) {
-  ;(window as unknown as { __chatStore: typeof chatStore }).__chatStore = chatStore
-}
+// Console access, always on: store.getSnapshot(), store.send('...'), store.reset()
+;(window as unknown as { store: typeof chatStore }).store = chatStore
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

@@ -1,74 +1,58 @@
 /**
- * Isomorphic ChatStore tests: run in Node (tsx tests/run-logic.ts) and in
- * the browser (/#tests). Transport is scripted — no network, deterministic.
+ * Isomorphic ChatStore tests: run in Node (npm run test:logic) and in the
+ * browser panel — there they drive the visible chat store, and checkpoints
+ * pause until «Далее» so every step is observable on the real UI.
+ *
+ * Timing rule: after the actions, always `await settle(store)` before the
+ * final assertions — in the browser a scripted transport may be parked on a
+ * checkpoint, so a fixed number of flushes proves nothing.
  */
-import { ChatStore } from '../stores/chat-store';
 import { ChatApiError } from '../lib/chat-api';
-import type { ChatTransport } from '../lib/chat-api';
-import type { ChatMessage, Role } from '../types/chat';
+import { ChatStore } from '../stores/chat-store';
+import type { ChatMessage } from '../types/chat';
+import { aborted, flush, scripted, settle } from './fakes';
+import type { ApiMessages } from './harness';
 import { assert, assertEq, assertIncludes, test } from './harness';
-
-const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
-
-type ApiMessages = { role: Role; content: string }[];
-
-/** A transport scripted per test; can capture the history it was called with. */
-function scripted(
-  fn: (opts: { signal: AbortSignal; onDelta: (t: string) => void; onReasoning?: (t: string) => void }) => void | Promise<void>,
-  captured?: ApiMessages[],
-): ChatTransport {
-  return (messages, opts) => {
-    captured?.push(messages);
-    // Defer into a microtask: the real transport never calls back
-    // synchronously, and tests assert the 'awaiting' phase after send().
-    return Promise.resolve().then(() => fn(opts));
-  };
-}
-
-function aborted(signal: AbortSignal): Promise<never> {
-  // Like fetch: an already-aborted signal rejects immediately.
-  if (signal.aborted) return Promise.reject(new DOMException('Aborted', 'AbortError'));
-  return new Promise((_, reject) =>
-    signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))),
-  );
-}
 
 const lastMsg = (s: ChatStore): ChatMessage => {
   const { messages } = s.getSnapshot();
   return messages[messages.length - 1];
 };
 
-test('send: placeholder, streaming deltas, done', async () => {
-  const store = new ChatStore(scripted(({ onDelta }) => {
+test('send: placeholder, streaming deltas, done', async (ctx) => {
+  const store = ctx.useTransport(async ({ onDelta }) => {
     onDelta('Hel');
+    await ctx.checkpoint('первый чанк ответа прилетел — каретка стриминга');
     onDelta('lo');
-  }));
+  });
 
   store.send('  hi  ');
   assertEq(store.getSnapshot().phase, 'awaiting');
   assertEq(store.getSnapshot().messages.length, 2);
   assertEq(store.getSnapshot().messages[0].role, 'user');
 
-  await flush();
+  await settle(store);
+  await ctx.checkpoint('ответ доехал целиком — статус done');
+
   const st = store.getSnapshot();
   assertEq(st.phase, 'idle');
   assertEq(lastMsg(store).content, 'Hello');
   assertEq(lastMsg(store).status, 'done');
 });
 
-test('reasoning: accumulates separately, first reasoning token means streaming', async () => {
+test('reasoning: accumulates separately, first reasoning token means streaming', async (ctx) => {
   const phases: string[] = [];
-  const store = new ChatStore(scripted(async ({ onDelta, onReasoning }) => {
+  const store = ctx.useTransport(async ({ onDelta, onReasoning }) => {
     onReasoning?.('думаю… ');
     phases.push(store.getSnapshot().phase);
-    await flush();
+    await ctx.checkpoint('модель «размышляет» — спойлер над пустым ответом');
     onReasoning?.('ещё думаю');
     onDelta('готово');
-  }));
+  });
 
   store.send('q');
-  await flush();
-  await flush();
+  await settle(store);
+  await ctx.checkpoint('ответ готов, размышления сохранились под спойлером');
 
   assertEq(phases[0], 'streaming'); // reasoning flipped us out of 'awaiting'
   assertEq(lastMsg(store).reasoning, 'думаю… ещё думаю');
@@ -76,30 +60,35 @@ test('reasoning: accumulates separately, first reasoning token means streaming',
   assertEq(lastMsg(store).status, 'done');
 });
 
-test('stop: partial answer kept, marked stopped, phase back to idle', async () => {
-  const store = new ChatStore(scripted(async ({ signal, onDelta }) => {
+test('stop: partial answer kept, marked stopped, phase back to idle', async (ctx) => {
+  const store = ctx.useTransport(async ({ signal, onDelta }) => {
     onDelta('часть от');
+    await ctx.checkpoint('ответ стримится — после «Далее» тест сам нажмёт «Стоп»');
     await aborted(signal);
-  }));
+  });
 
   store.send('q');
   await flush();
   assertEq(store.getSnapshot().phase, 'streaming');
 
   store.stop();
-  await flush();
+  await settle(store);
+  await ctx.checkpoint('стоп: частичный ответ сохранился с пометкой');
+
   assertEq(lastMsg(store).status, 'stopped');
   assertEq(lastMsg(store).content, 'часть от');
   assertEq(store.getSnapshot().phase, 'idle');
 });
 
-test('typed error: ChatApiError maps code and retryAfter onto the message', async () => {
-  const store = new ChatStore(scripted(() => {
+test('typed error: ChatApiError maps code and retryAfter onto the message', async (ctx) => {
+  const store = ctx.useTransport(() => {
     throw new ChatApiError('rate_limit', 'slow down', 7);
-  }));
+  });
 
   store.send('q');
-  await flush();
+  await settle(store);
+  await ctx.checkpoint('типизированная ошибка: 429 с подсказкой retryAfter');
+
   const msg = lastMsg(store);
   assertEq(msg.status, 'error');
   assertEq(msg.error?.code, 'rate_limit');
@@ -107,35 +96,39 @@ test('typed error: ChatApiError maps code and retryAfter onto the message', asyn
   assertEq(store.getSnapshot().phase, 'idle');
 });
 
-test('unknown error: untyped throw is wrapped with its name and message', async () => {
-  const store = new ChatStore(scripted(() => {
+test('unknown error: untyped throw is wrapped with its name and message', async (ctx) => {
+  const store = ctx.useTransport(() => {
     throw new TypeError('boom');
-  }));
+  });
 
   store.send('q');
-  await flush();
+  await settle(store);
+  await ctx.checkpoint('неизвестная ошибка: спокойный текст, детали под спойлером');
+
   const msg = lastMsg(store);
   assertEq(msg.status, 'error');
   assertEq(msg.error?.code, 'unknown');
   assertIncludes(msg.error?.message ?? '', 'TypeError: boom');
 });
 
-test('retry: failed turn replaced, history before it kept and resent', async () => {
+test('retry: failed turn replaced, history before it kept and resent', async (ctx) => {
   const calls: ApiMessages[] = [];
   let fail = true;
-  const store = new ChatStore(scripted(({ onDelta }) => {
+  const store = ctx.useTransport(({ onDelta }) => {
     if (fail) throw new ChatApiError('timeout', 'nope');
     onDelta('ок');
-  }, calls));
+  }, calls);
 
   store.send('вопрос');
-  await flush();
+  await settle(store);
   assertEq(lastMsg(store).status, 'error');
   const failedId = lastMsg(store).id;
+  await ctx.checkpoint('ход упал с ошибкой — после «Далее» тест нажмёт «Повторить»');
 
   fail = false;
   store.retry(failedId);
-  await flush();
+  await settle(store);
+  await ctx.checkpoint('повтор: упавший ответ заменён успешным');
 
   const st = store.getSnapshot();
   assertEq(st.messages.length, 2); // user + new assistant, failed one replaced
@@ -146,17 +139,18 @@ test('retry: failed turn replaced, history before it kept and resent', async () 
   assertEq(calls[1][0].content, 'вопрос');
 });
 
-test('history: done turns only, no placeholder, reasoning never sent back', async () => {
+test('history: done turns only, no placeholder, reasoning never sent back', async (ctx) => {
   const calls: ApiMessages[] = [];
-  const store = new ChatStore(scripted(({ onDelta, onReasoning }) => {
+  const store = ctx.useTransport(({ onDelta, onReasoning }) => {
     onReasoning?.('мысли');
     onDelta('ответ');
-  }, calls));
+  }, calls);
 
   store.send('q1');
-  await flush();
+  await settle(store);
   store.send('q2');
-  await flush();
+  await settle(store);
+  await ctx.checkpoint('два готовых хода — история чистая, без размышлений');
 
   assertEq(calls.length, 2);
   const second = calls[1];
@@ -166,8 +160,8 @@ test('history: done turns only, no placeholder, reasoning never sent back', asyn
   assert(!('reasoning' in second[1]), 'reasoning must not leak into history');
 });
 
-test('guards: no send/clear while busy, empty draft not sent', async () => {
-  const store = new ChatStore(scripted(({ signal }) => aborted(signal)));
+test('guards: no send/clear while busy, empty draft not sent', async (ctx) => {
+  const store = ctx.useTransport(({ signal }) => aborted(signal));
 
   store.send('   ');
   assertEq(store.getSnapshot().messages.length, 0); // whitespace — ignored
@@ -177,13 +171,48 @@ test('guards: no send/clear while busy, empty draft not sent', async () => {
 
   store.send('первый');
   assertEq(store.getSnapshot().phase, 'awaiting');
+  await ctx.checkpoint('генерация висит — «второй» и очистка будут проигнорированы');
+
   store.send('второй'); // busy — must be ignored
   assertEq(store.getSnapshot().messages.length, 2);
   store.clear(); // busy — must be ignored
   assertEq(store.getSnapshot().messages.length, 2);
 
   store.stop();
-  await flush();
+  await settle(store);
   store.clear();
   assertEq(store.getSnapshot().messages.length, 0);
+});
+
+// Regression: click the real «Стоп» while the guards test is parked at its
+// checkpoint → the scenario fails on a half-broken state and leaks an
+// in-flight run. The next test's useTransport (reset + setTransport) then
+// aborted that leaked run — and its finally unconditionally clobbered the
+// NEW run's controller and phase, hanging the rerun forever.
+// Store-local scenario: one store must survive across the reset boundary,
+// so ctx.useTransport (fresh store per call in Node) doesn't fit.
+test('leaked run: reset() + next run — old finally must not clobber it', async () => {
+  const parked = scripted(({ signal }) => aborted(signal));
+  const store = new ChatStore(parked);
+
+  store.send('первый');
+  await flush(); // run1 parked
+  store.stop(); // the user's real «Стоп»
+  await settle(store); // run1 unwound: stopped, idle
+
+  store.send('второй'); // the failed scenario's leaked run2
+  await flush();
+  assertEq(store.getSnapshot().phase, 'awaiting');
+
+  // What the next test's useTransport does, step for step.
+  store.reset(); // aborts run2 → its finally fires AFTER run3 starts
+  store.setTransport(parked);
+  store.send('третий');
+  await flush();
+
+  assertEq(store.getSnapshot().phase, 'awaiting'); // not clobbered to idle
+  store.stop(); // must abort run3 — controller survived
+  await settle(store);
+  assertEq(store.getSnapshot().phase, 'idle');
+  assertEq(lastMsg(store).status, 'stopped');
 });
