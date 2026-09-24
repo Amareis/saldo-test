@@ -17,6 +17,18 @@ export function ChatMessageItem({ message }: { message: ChatMessage }) {
             : 'rounded-bl-md bg-muted text-foreground',
         )}
       >
+        {message.reasoning && (
+          // Reasoning under a spoiler — natively keyboard-accessible.
+          // While the model thinks (no visible answer yet) the summary says so.
+          <details className="mb-1.5 text-xs text-muted-foreground">
+            <summary className="cursor-pointer select-none rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              {message.status === 'streaming' && !message.content ? 'Модель размышляет…' : 'Размышления модели'}
+            </summary>
+            <p className="mt-1 whitespace-pre-wrap break-words border-l-2 border-border pl-2 italic opacity-80">
+              {message.reasoning}
+            </p>
+          </details>
+        )}
         {message.content ? (
           <p className="whitespace-pre-wrap break-words">
             {message.content}

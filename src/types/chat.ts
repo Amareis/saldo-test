@@ -24,6 +24,8 @@ export interface ChatMessage {
   id: string;
   role: Role;
   content: string;
+  /** Reasoning tokens of thinking models — shown collapsed above the answer. */
+  reasoning?: string;
   status: MessageStatus;
   error?: ChatError;
   createdAt: number;

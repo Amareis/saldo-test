@@ -101,6 +101,7 @@ class ChatStore extends Store<ChatState> {
       await streamChat(toApiMessages(history), {
         signal: controller.signal,
         onDelta: (text) => appendDelta('content', text),
+        onReasoning: (text) => appendDelta('reasoning', text),
       });
       patchMessage({ status: 'done' });
     } catch (err) {

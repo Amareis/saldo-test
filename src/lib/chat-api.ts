@@ -24,6 +24,8 @@ export class ChatApiError extends Error {
 interface StreamOptions {
   signal: AbortSignal;
   onDelta: (text: string) => void;
+  /** Reasoning tokens stream as separate events, before/alongside the answer. */
+  onReasoning?: (text: string) => void;
 }
 
 interface ApiMessage {
@@ -31,7 +33,7 @@ interface ApiMessage {
   content: string;
 }
 
-export async function streamChat(messages: ApiMessage[], { signal, onDelta }: StreamOptions): Promise<void> {
+export async function streamChat(messages: ApiMessage[], { signal, onDelta, onReasoning }: StreamOptions): Promise<void> {
   let res: Response;
   try {
     res = await fetch('/api/chat', {
@@ -73,6 +75,8 @@ export async function streamChat(messages: ApiMessage[], { signal, onDelta }: St
       }
       if (payload.type === 'delta' && payload.text) {
         onDelta(payload.text);
+      } else if (payload.type === 'reasoning' && payload.text) {
+        onReasoning?.(payload.text);
       } else if (payload.type === 'error') {
         throw new ChatApiError(payload.code ?? 'upstream', payload.message ?? 'Модель вернула ошибку.', payload.retryAfter);
       } else if (payload.type === 'done') {
