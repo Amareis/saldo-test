@@ -8,7 +8,8 @@ export type ChatErrorCode =
   | 'auth' // bad OpenRouter key on the server
   | 'no_key' // server has no key configured at all
   | 'bad_request'
-  | 'upstream';
+  | 'upstream'
+  | 'unknown'; // anything untyped — UI shows generic text, details under a spoiler
 
 export interface ChatError {
   code: ChatErrorCode;
