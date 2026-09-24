@@ -294,6 +294,8 @@ if (fs.existsSync(distDir)) {
   app.get(/^\/(?!api\/).*/, (_req, res) => res.sendFile(path.join(distDir, 'index.html')));
 }
 
-app.listen(PORT, () => {
-  console.log(`[server] http://localhost:${PORT}  (model: ${MODEL}, key ${API_KEY ? 'configured' : 'MISSING — see .env.example'})`);
+const server = app.listen(PORT, () => {
+  // PORT=0 (random free port) is used by tests — print the real one.
+  const actualPort = server.address()?.port ?? PORT;
+  console.log(`[server] http://localhost:${actualPort}  (model: ${MODEL}, key ${API_KEY ? 'configured' : 'MISSING — see .env.example'})`);
 });
