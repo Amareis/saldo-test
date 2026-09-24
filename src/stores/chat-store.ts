@@ -142,8 +142,15 @@ export class ChatStore extends Store<ChatState> {
         patchMessage({ status: 'error', error });
       }
     } finally {
-      this.abortController = null;
-      this.updateState({ phase: 'idle' });
+      // Unwind only if this run still owns the store: a reset() may have
+      // nulled the controller and a NEWER run may already be in flight
+      // (e.g. a scripted transport leaked past a failed test and got
+      // aborted by the next test's reset) — an unconditional unwind would
+      // clobber that newer run's controller and phase.
+      if (this.abortController === controller) {
+        this.abortController = null;
+        this.updateState({ phase: 'idle' });
+      }
     }
   }
 }

@@ -114,7 +114,10 @@ export function TestPanel({ open, onClose }: TestPanelProps) {
   const finishRun = () => {
     // Real transport back; demoed messages stay visible for inspection, but
     // composer debris from scenarios (e.g. the guards test's draft) is wiped.
+    // stop() unwinds a leaked in-flight run (e.g. the user clicked the real
+    // «Стоп» mid-test and the scenario then failed on a half-broken state).
     setPaused(null);
+    chatStore.stop();
     chatStore.setTransport(streamChat);
     chatStore.setDraft('');
     setRunning(null);

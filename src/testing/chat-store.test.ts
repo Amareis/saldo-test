@@ -8,9 +8,9 @@
  * checkpoint, so a fixed number of flushes proves nothing.
  */
 import { ChatApiError } from '../lib/chat-api';
-import type { ChatStore } from '../stores/chat-store';
+import { ChatStore } from '../stores/chat-store';
 import type { ChatMessage } from '../types/chat';
-import { aborted, flush, settle } from './fakes';
+import { aborted, flush, scripted, settle } from './fakes';
 import type { ApiMessages } from './harness';
 import { assert, assertEq, assertIncludes, test } from './harness';
 
@@ -182,4 +182,37 @@ test('guards: no send/clear while busy, empty draft not sent', async (ctx) => {
   await settle(store);
   store.clear();
   assertEq(store.getSnapshot().messages.length, 0);
+});
+
+// Regression: click the real «Стоп» while the guards test is parked at its
+// checkpoint → the scenario fails on a half-broken state and leaks an
+// in-flight run. The next test's useTransport (reset + setTransport) then
+// aborted that leaked run — and its finally unconditionally clobbered the
+// NEW run's controller and phase, hanging the rerun forever.
+// Store-local scenario: one store must survive across the reset boundary,
+// so ctx.useTransport (fresh store per call in Node) doesn't fit.
+test('leaked run: reset() + next run — old finally must not clobber it', async () => {
+  const parked = scripted(({ signal }) => aborted(signal));
+  const store = new ChatStore(parked);
+
+  store.send('первый');
+  await flush(); // run1 parked
+  store.stop(); // the user's real «Стоп»
+  await settle(store); // run1 unwound: stopped, idle
+
+  store.send('второй'); // the failed scenario's leaked run2
+  await flush();
+  assertEq(store.getSnapshot().phase, 'awaiting');
+
+  // What the next test's useTransport does, step for step.
+  store.reset(); // aborts run2 → its finally fires AFTER run3 starts
+  store.setTransport(parked);
+  store.send('третий');
+  await flush();
+
+  assertEq(store.getSnapshot().phase, 'awaiting'); // not clobbered to idle
+  store.stop(); // must abort run3 — controller survived
+  await settle(store);
+  assertEq(store.getSnapshot().phase, 'idle');
+  assertEq(lastMsg(store).status, 'stopped');
 });
