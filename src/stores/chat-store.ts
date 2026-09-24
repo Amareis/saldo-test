@@ -1,6 +1,7 @@
-import { Store } from '@/lib/store';
-import { ChatApiError, streamChat } from '@/lib/chat-api';
-import type { ChatError, ChatMessage } from '@/types/chat';
+import { Store } from '../lib/store';
+import { ChatApiError, streamChat } from '../lib/chat-api';
+import type { ChatTransport } from '../lib/chat-api';
+import type { ChatError, ChatMessage } from '../types/chat';
 
 export type ChatPhase = 'idle' | 'awaiting' | 'streaming';
 
@@ -23,11 +24,18 @@ function toApiMessages(history: ChatMessage[]) {
     .map((m) => ({ role: m.role, content: m.content }));
 }
 
-class ChatStore extends Store<ChatState> {
+export class ChatStore extends Store<ChatState> {
   private abortController: AbortController | null = null;
+  private transport: ChatTransport;
 
-  constructor() {
+  /**
+   * Transport defaults to the real SSE client; tests inject a scripted fake.
+   * The store itself is DOM-free and runs under plain Node — UI only renders
+   * snapshots and calls these methods.
+   */
+  constructor(transport: ChatTransport = streamChat) {
     super({ messages: [], phase: 'idle', draft: '' });
+    this.transport = transport;
   }
 
   setDraft(draft: string): void {
@@ -98,7 +106,7 @@ class ChatStore extends Store<ChatState> {
     };
 
     try {
-      await streamChat(toApiMessages(history), {
+      await this.transport(toApiMessages(history), {
         signal: controller.signal,
         onDelta: (text) => appendDelta('content', text),
         onReasoning: (text) => appendDelta('reasoning', text),

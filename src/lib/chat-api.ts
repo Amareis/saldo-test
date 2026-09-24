@@ -1,4 +1,4 @@
-import type { ChatErrorCode, Role } from '@/types/chat';
+import type { ChatErrorCode, Role } from '../types/chat';
 
 /**
  * Client for our own /api/chat proxy. The browser never sees the OpenRouter
@@ -105,3 +105,9 @@ async function toHttpError(res: Response): Promise<ChatApiError> {
   if (res.status === 504) return new ChatApiError('timeout', 'Модель не ответила вовремя.');
   return new ChatApiError('upstream', `Сервер вернул ошибку (HTTP ${res.status}).`);
 }
+
+/**
+ * Transport signature ChatStore depends on. Injectable: tests run the store
+ * on a scripted fake, no network involved.
+ */
+export type ChatTransport = typeof streamChat;
