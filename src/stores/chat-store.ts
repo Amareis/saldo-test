@@ -31,7 +31,7 @@ class ChatStore extends Store<ChatState> {
   }
 
   setDraft(draft: string): void {
-    this.setState({ ...this.getSnapshot(), draft });
+    this.updateState({ draft });
   }
 
   send(text: string): void {
@@ -58,7 +58,7 @@ class ChatStore extends Store<ChatState> {
 
   clear(): void {
     if (this.getSnapshot().phase !== 'idle') return;
-    this.setState({ ...this.getSnapshot(), messages: [] });
+    this.updateState({ messages: [] });
   }
 
   private async run(history: ChatMessage[]): Promise<void> {
@@ -72,33 +72,35 @@ class ChatStore extends Store<ChatState> {
       status: 'streaming',
       createdAt: Date.now(),
     };
-    this.setState({ ...this.getSnapshot(), messages: [...history, placeholder], phase: 'awaiting' });
+    this.updateState({ messages: [...history, placeholder], phase: 'awaiting' });
 
     const controller = new AbortController();
     this.abortController = controller;
-    let gotFirstDelta = false;
+    let gotFirstActivity = false;
 
     const patchMessage = (patch: Partial<ChatMessage>) =>
-      this.setState({
-        ...this.getSnapshot(),
+      this.updateState({
         messages: this.getSnapshot().messages.map((m) => (m.id === assistantId ? { ...m, ...patch } : m)),
       });
+
+    // Any token — visible answer or reasoning — means the model is alive:
+    // flip to 'streaming' so the typing indicator gives way to the caret.
+    const appendDelta = (field: 'content' | 'reasoning', text: string) => {
+      if (!gotFirstActivity) {
+        gotFirstActivity = true;
+        this.updateState({ phase: 'streaming' });
+      }
+      this.updateState({
+        messages: this.getSnapshot().messages.map((m) =>
+          m.id === assistantId ? { ...m, [field]: (m[field] ?? '') + text } : m,
+        ),
+      });
+    };
 
     try {
       await streamChat(toApiMessages(history), {
         signal: controller.signal,
-        onDelta: (text) => {
-          if (!gotFirstDelta) {
-            gotFirstDelta = true;
-            this.setState({ ...this.getSnapshot(), phase: 'streaming' });
-          }
-          this.setState({
-            ...this.getSnapshot(),
-            messages: this.getSnapshot().messages.map((m) =>
-              m.id === assistantId ? { ...m, content: m.content + text } : m,
-            ),
-          });
-        },
+        onDelta: (text) => appendDelta('content', text),
       });
       patchMessage({ status: 'done' });
     } catch (err) {
@@ -115,7 +117,7 @@ class ChatStore extends Store<ChatState> {
       }
     } finally {
       this.abortController = null;
-      this.setState({ ...this.getSnapshot(), phase: 'idle' });
+      this.updateState({ phase: 'idle' });
     }
   }
 }

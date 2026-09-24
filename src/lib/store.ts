@@ -28,4 +28,12 @@ export abstract class Store<TState> {
     this.state = next;
     for (const listener of this.listeners) listener();
   }
+
+  /**
+   * Shallow-merge a patch into the state — the common case. Keeps call
+   * sites short: updateState({ draft }) instead of setState({ ...state, draft }).
+   */
+  protected updateState(patch: Partial<TState>): void {
+    this.setState({ ...this.state, ...patch });
+  }
 }
