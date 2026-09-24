@@ -31,8 +31,10 @@ const BASE_URL = process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v
 // Free models (especially reasoning ones like Nemotron) routinely stall:
 // queued at the provider, "thinking" without emitting. Timeouts must
 // tolerate that — 20s/30s here caused regular mid-chat drops.
-const FIRST_BYTE_TIMEOUT_MS = 60_000; // waiting for the model to start answering
-const IDLE_TIMEOUT_MS = 90_000; // silence in the middle of a stream
+// NB: there is deliberately NO total-time cap — long reasoning answers
+// are fine as long as tokens keep flowing; only silence is suspicious.
+const FIRST_BYTE_TIMEOUT_MS = Number(process.env.FIRST_BYTE_TIMEOUT_MS ?? 60_000); // waiting for response headers
+const IDLE_TIMEOUT_MS = Number(process.env.IDLE_TIMEOUT_MS ?? 90_000); // silence in the middle of a stream
 
 /** Tiny .env parser so we don't need dotenv (KEY=value, # comments, optional quotes). */
 function loadEnvFile(file) {
@@ -82,11 +84,22 @@ app.post('/api/chat', async (req, res) => {
     }
   });
 
+  // First-byte watchdog: covers ONLY the wait for response headers, then
+  // is cancelled. NB: not AbortSignal.timeout() — a fetch signal stays
+  // attached for the whole body stream, so a fixed timeout killed long
+  // reasoning answers mid-stream (observed: TimeoutError exactly 60s after
+  // request start, with tokens flowing).
+  const firstByte = new AbortController();
+  const firstByteTimer = setTimeout(
+    () => firstByte.abort(new Error(`no response headers within ${FIRST_BYTE_TIMEOUT_MS / 1000}s`)),
+    FIRST_BYTE_TIMEOUT_MS,
+  );
+
   let upstreamRes;
   try {
     upstreamRes = await fetch(`${BASE_URL}/chat/completions`, {
       method: 'POST',
-      signal: AbortSignal.any([upstream.signal, AbortSignal.timeout(FIRST_BYTE_TIMEOUT_MS)]),
+      signal: AbortSignal.any([upstream.signal, firstByte.signal]),
       headers: {
         Authorization: `Bearer ${API_KEY}`,
         'Content-Type': 'application/json',
@@ -104,15 +117,21 @@ app.post('/api/chat', async (req, res) => {
       }),
     });
   } catch (err) {
-    const isTimeout = err?.name === 'TimeoutError' || err?.name === 'AbortError';
+    clearTimeout(firstByteTimer);
+    if (upstream.signal.aborted) {
+      // Client went away while we were waiting — the socket is already
+      // closed, nothing to write an error to.
+      log('[chat] client disconnected while waiting for the model');
+      return;
+    }
+    if (firstByte.signal.aborted) {
+      log(`[chat] first-byte timeout (${FIRST_BYTE_TIMEOUT_MS / 1000}s waiting for headers)`);
+      return sendHttpError(res, 504, 'timeout', 'The model did not start answering in time.');
+    }
     log(`[chat] upstream call failed: ${err?.name ?? err}`);
-    return sendHttpError(
-      res,
-      isTimeout ? 504 : 502,
-      isTimeout ? 'timeout' : 'network',
-      isTimeout ? 'The model did not start answering in time.' : 'Could not reach OpenRouter.',
-    );
+    return sendHttpError(res, 502, 'network', 'Could not reach OpenRouter.');
   }
+  clearTimeout(firstByteTimer);
 
   // Setup-phase errors: forward a real HTTP status before any streaming starts,
   // so the client can rely on response.ok.
