@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
-import { MessageSquarePlus, Bot, FlaskConical } from 'lucide-react';
+import { MessageSquarePlus, Bot, FlaskConical, Sun, Moon } from 'lucide-react';
 import { chatStore } from '@/stores/chat-store';
+import { themeStore } from '@/stores/theme-store';
 import { useStore } from '@/lib/use-store';
 import { MessageList } from '@/components/chat/MessageList';
 import { Composer } from '@/components/chat/Composer';
@@ -12,6 +13,7 @@ interface HomeProps {
 
 export default function Home({ onOpenTests, testsOpen }: HomeProps) {
   const { messages, phase } = useStore(chatStore);
+  const { theme } = useStore(themeStore);
 
   // Esc stops generation no matter where the focus is — unless the test
   // panel is open (there Esc closes the panel instead).
@@ -37,24 +39,38 @@ export default function Home({ onOpenTests, testsOpen }: HomeProps) {
             </span>
             <h1 className="text-base font-semibold tracking-tight">AI Чат</h1>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <button
+              type="button"
+              onClick={() => themeStore.toggle()}
+              aria-label={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}
+              className="inline-flex items-center justify-center rounded-lg border border-border bg-card p-2 text-sm font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            >
+              {theme === 'dark' ? (
+                <Sun className="h-4 w-4" aria-hidden="true" />
+              ) : (
+                <Moon className="h-4 w-4" aria-hidden="true" />
+              )}
+            </button>
             <button
               type="button"
               onClick={onOpenTests}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              aria-label="Тесты"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-2 text-sm font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:px-3 sm:py-1.5"
             >
               <FlaskConical className="h-4 w-4" aria-hidden="true" />
-              Тесты
+              <span className="hidden sm:inline">Тесты</span>
             </button>
             {messages.length > 0 && (
               <button
                 type="button"
                 onClick={() => chatStore.clear()}
                 disabled={phase !== 'idle'}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                aria-label="Новый чат"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-2 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:px-3 sm:py-1.5"
               >
                 <MessageSquarePlus className="h-4 w-4" aria-hidden="true" />
-                Новый чат
+                <span className="hidden sm:inline">Новый чат</span>
               </button>
             )}
           </div>

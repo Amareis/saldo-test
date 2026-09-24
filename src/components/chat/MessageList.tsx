@@ -42,7 +42,7 @@ export function MessageList() {
       role="region"
       aria-label="История диалога"
     >
-      <ul role="log" aria-live="polite" aria-label="Сообщения" className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-6">
+      <ul role="log" aria-live="polite" aria-label="Сообщения" className="mx-auto flex w-full max-w-3xl flex-col gap-3.5 px-3 py-4 sm:gap-4 sm:px-4 sm:py-6">
         {messages.map((m) => (
           <ChatMessageItem key={m.id} message={m} />
         ))}

@@ -50,7 +50,12 @@ export function Composer() {
         submit();
       }}
     >
-      <div className="mx-auto flex w-full max-w-3xl items-end gap-2 px-4 py-3">
+      {/* Shortcuts live in the empty-state copy; here — screen readers only,
+          so the composer stays one slim row on phones. */}
+      <span id="composer-hint" className="sr-only">
+        Enter — отправить, Shift+Enter — новая строка, Esc — остановить генерацию
+      </span>
+      <div className="mx-auto flex w-full max-w-3xl items-end gap-2 px-3 py-2.5 sm:px-4 sm:py-3">
         <label htmlFor="chat-input" className="sr-only">
           Сообщение модели
         </label>
@@ -63,7 +68,7 @@ export function Composer() {
           placeholder="Напишите сообщение…"
           rows={1}
           aria-describedby="composer-hint"
-          className="max-h-40 min-h-[44px] flex-1 resize-none rounded-xl border border-input bg-card px-3.5 py-2.5 text-[15px] text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          className="max-h-40 min-h-[44px] flex-1 resize-none rounded-xl border border-input bg-card px-3.5 py-2.5 text-[15px] text-foreground shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         />
         {generating ? (
           <button
@@ -91,9 +96,6 @@ export function Composer() {
           </button>
         )}
       </div>
-      <p id="composer-hint" className="mx-auto w-full max-w-3xl px-4 pb-2 text-xs text-muted-foreground">
-        Enter — отправить · Shift+Enter — новая строка · Esc — остановить генерацию
-      </p>
     </form>
   );
 }

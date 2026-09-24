@@ -1,7 +1,17 @@
 import { AlertCircle, RotateCcw } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { ChatMessage } from '@/types/chat';
 import { chatStore } from '@/stores/chat-store';
 import { cn } from '@/lib/utils';
+
+/** Streaming caret — shared by the plain and markdown branches. */
+const Caret = () => (
+  <span
+    aria-hidden="true"
+    className="ml-0.5 inline-block h-4 w-[7px] translate-y-[2px] animate-pulse rounded-[2px] bg-current opacity-70"
+  />
+);
 
 export function ChatMessageItem({ message }: { message: ChatMessage }) {
   const isUser = message.role === 'user';
@@ -11,7 +21,7 @@ export function ChatMessageItem({ message }: { message: ChatMessage }) {
       <article
         aria-label={isUser ? 'Вы' : 'Модель'}
         className={cn(
-          'max-w-[85%] rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed sm:max-w-[75%]',
+          'max-w-[88%] rounded-2xl px-3.5 py-2 text-[15px] leading-relaxed shadow-sm sm:max-w-[75%] sm:px-4 sm:py-2.5',
           isUser
             ? 'rounded-br-md bg-primary text-primary-foreground'
             : 'rounded-bl-md bg-muted text-foreground',
@@ -30,16 +40,27 @@ export function ChatMessageItem({ message }: { message: ChatMessage }) {
           </details>
         )}
         {message.content ? (
-          <p className="whitespace-pre-wrap break-words">
-            {message.content}
-            {message.status === 'streaming' && (
-              <span aria-hidden="true" className="ml-0.5 inline-block h-4 w-[7px] translate-y-[2px] animate-pulse rounded-[2px] bg-current opacity-70" />
-            )}
-          </p>
-        ) : (
-          message.status === 'streaming' && (
-            <span aria-hidden="true" className="inline-block h-4 w-[7px] animate-pulse rounded-[2px] bg-current opacity-70" />
+          isUser ? (
+            <p className="whitespace-pre-wrap break-words">{message.content}</p>
+          ) : (
+            // Assistant answers are markdown (GFM) — models emit lists, code
+            // and tables all the time. Re-parsing per token is fine at
+            // chat-message sizes.
+            <div className="md break-words">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  // External links open in a new tab, never navigate the chat away.
+                  a: (props) => <a {...props} target="_blank" rel="noreferrer" />,
+                }}
+              >
+                {message.content}
+              </ReactMarkdown>
+              {message.status === 'streaming' && <Caret />}
+            </div>
           )
+        ) : (
+          message.status === 'streaming' && <Caret />
         )}
       </article>
 
