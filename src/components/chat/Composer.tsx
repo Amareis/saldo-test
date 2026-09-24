@@ -75,8 +75,14 @@ export function Composer() {
             <Square className="h-4 w-4 fill-current" aria-hidden="true" />
           </button>
         ) : (
+          // NOT type="submit": React morphs the stop button into this one in
+          // place, and Blink computes the click's activation behavior AFTER
+          // listeners — a morphed submit button gets activated by the very
+          // click that pressed «stop», sending the draft. type="button" has
+          // no activation behavior, so the phantom click is a no-op.
           <button
-            type="submit"
+            type="button"
+            onClick={submit}
             disabled={!canSend}
             aria-label="Отправить сообщение"
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
