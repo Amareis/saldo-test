@@ -1,16 +1,22 @@
 import { useEffect } from 'react';
-import { MessageSquarePlus, Bot } from 'lucide-react';
+import { MessageSquarePlus, Bot, FlaskConical } from 'lucide-react';
 import { chatStore } from '@/stores/chat-store';
 import { useStore } from '@/lib/use-store';
 import { MessageList } from '@/components/chat/MessageList';
 import { Composer } from '@/components/chat/Composer';
 
-export default function Home() {
+interface HomeProps {
+  onOpenTests: () => void;
+  testsOpen: boolean;
+}
+
+export default function Home({ onOpenTests, testsOpen }: HomeProps) {
   const { messages, phase } = useStore(chatStore);
 
-  // Esc stops generation no matter where the focus is.
+  // Esc stops generation no matter where the focus is — unless the test
+  // panel is open (there Esc closes the panel instead).
   useEffect(() => {
-    if (phase === 'idle') return;
+    if (phase === 'idle' || testsOpen) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -19,7 +25,7 @@ export default function Home() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [phase]);
+  }, [phase, testsOpen]);
 
   return (
     <div className="flex h-dvh flex-col bg-background text-foreground">
@@ -31,17 +37,27 @@ export default function Home() {
             </span>
             <h1 className="text-base font-semibold tracking-tight">AI Чат</h1>
           </div>
-          {messages.length > 0 && (
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => chatStore.clear()}
-              disabled={phase !== 'idle'}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              onClick={onOpenTests}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
-              <MessageSquarePlus className="h-4 w-4" aria-hidden="true" />
-              Новый чат
+              <FlaskConical className="h-4 w-4" aria-hidden="true" />
+              Тесты
             </button>
-          )}
+            {messages.length > 0 && (
+              <button
+                type="button"
+                onClick={() => chatStore.clear()}
+                disabled={phase !== 'idle'}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              >
+                <MessageSquarePlus className="h-4 w-4" aria-hidden="true" />
+                Новый чат
+              </button>
+            )}
+          </div>
         </div>
       </header>
 

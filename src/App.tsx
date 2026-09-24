@@ -1,25 +1,28 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Home from './pages/Home';
-
-// The test runner is a dev/diagnostic page — lazy-loaded so the main bundle
-// doesn't carry it.
-const TestRunner = lazy(() => import('./pages/TestRunner'));
+import { TestPanel } from './components/testing/TestPanel';
 
 export default function App() {
-  const [hash, setHash] = useState(() => window.location.hash);
+  // #tests opens the test panel too — handy for linking.
+  const [testsOpen, setTestsOpen] = useState(() => window.location.hash === '#tests');
 
   useEffect(() => {
-    const onHashChange = () => setHash(window.location.hash);
+    const onHashChange = () => {
+      if (window.location.hash === '#tests') setTestsOpen(true);
+    };
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
 
-  if (hash === '#tests') {
-    return (
-      <Suspense fallback={<p className="p-10 text-sm text-muted-foreground">Загрузка тестов…</p>}>
-        <TestRunner />
-      </Suspense>
-    );
-  }
-  return <Home />;
+  const closeTests = () => {
+    setTestsOpen(false);
+    if (window.location.hash === '#tests') history.replaceState(null, '', window.location.pathname);
+  };
+
+  return (
+    <>
+      <Home onOpenTests={() => setTestsOpen(true)} testsOpen={testsOpen} />
+      <TestPanel open={testsOpen} onClose={closeTests} />
+    </>
+  );
 }
