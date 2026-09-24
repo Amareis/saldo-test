@@ -1,73 +1,127 @@
-# React + TypeScript + Vite
+# saldo-test: веб-чат с ИИ
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Одностраничный чат с языковой моделью через [OpenRouter](https://openrouter.ai).
+Пользователь пишет сообщение — ответ модели появляется по мере генерации.
+Тестовое задание на позицию frontend-разработчика.
 
-Currently, two official plugins are available:
+## Быстрый старт (5 минут)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+Требуется Node.js 20+.
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm ci
+cp .env.example .env
+# в .env подставить свой ключ: https://openrouter.ai/keys (достаточно бесплатного)
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Открыть http://localhost:3000 — фронт на Vite, API проксируется на сервер (:8787).
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+Прод-режим (сервер сам раздаёт собранный фронт):
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run build && npm start   # http://localhost:8787
 ```
+
+## Структура
+
+```
+server/index.js        Минимальный Express-прокси к OpenRouter (ключ живёт только здесь)
+src/
+  lib/
+    store.ts           Базовый класс Store: контракт subscribe/getSnapshot
+    use-store.ts       useStore() — подписка компонента через useSyncExternalStore
+    chat-api.ts        SSE-клиент: fetch + ReadableStream, типизированные ошибки
+  stores/
+    chat-store.ts      ChatStore: весь стейт чата, экшены — обычные async-методы
+  components/chat/     Composer, MessageList, ChatMessage, TypingIndicator, EmptyState
+  pages/Home.tsx       Сборка страницы
+  types/chat.ts        Типы сообщений и коды ошибок
+```
+
+## Ключевые решения
+
+**Ключ не покидает сервер.** Браузер ходит только в `/api/chat`; ключ
+подставляется на сервере из `.env`. Проверяется вкладкой Network: в запросах
+со страницы ключа нет.
+
+**Стриминг — SSE поверх fetch, а не EventSource.** EventSource умеет только GET
+и не может отправить историю сообщений телом; fetch + `ReadableStream` даёт POST,
+`AbortController` и честные HTTP-статусы ошибок.
+
+**Отмена — AbortController на всём пути.** «Стоп»/Esc обрывает fetch на клиенте;
+сервер слушает `res.on('close')` и обрывает запрос к OpenRouter, чтобы не жечь
+токены. Частично полученный ответ остаётся в истории с пометкой «остановлено».
+
+**Reasoning показываем, но в историю не возвращаем.** Сервер запрашивает у
+OpenRouter `reasoning: { enabled: true }` (иначе reasoning-модели «думают»
+в полной тишине и стрим выглядит мёртвым) и форвардит дельты отдельным
+SSE-событием; в UI они под спойлером. Но в последующие запросы рассуждения
+не включаем осознанно: без tool calling API их просто игнорирует (DeepSeek),
+OpenAI назад не принимает вовсе, а OpenRouter рекомендует возвращать только
+при вызове инструментов — при этом reasoning-токены тарифицируются как output
+и занимают контекстное окно. Рассуждение — процесс одного хода, а не память;
+на каждый запрос модель рассуждает заново. Если появятся инструменты —
+придётся сохранять и возвращать.
+
+**Ошибки типизированы.** 429 (с `retryAfter`), таймаут, обрыв сети, нет/плохой
+ключ — у каждого случая своё понятное состояние и кнопка «Повторить».
+Нетипизированная ошибка (`unknown`) показывает спокойный текст, а технические
+детали прячет под спойлер (`<details>` — нативно доступен с клавиатуры).
+
+**Стейт — класс + `useSyncExternalStore`, без библиотек.** Весь стейт чата лежит
+в `ChatStore` (наследник `Store` из `lib/store.ts`), экшены — обычные
+async-методы, компоненты подписываются хуком `useStore`. Это тот же паттерн, что
+внутри zustand, но без зависимости и с полным контролем: `getSnapshot` отдаёт
+стабильную ссылку, обновления иммутабельные. Для MobX здесь слишком мало
+состояния, а хуки с `useRef` для «свежих» значений быстро превращаются в цирк.
+
+**История — в рамках сессии вкладки.** Перезагрузка страницы чат не переживает:
+восстановленная после F5 история не приносит пользы, зато добавляет риски
+(чужой диалог на общем устройстве, устаревшие состояния `error`/`stopped`).
+Возможная персистентность (localStorage) — в разделе «Что дальше».
+
+## Важные корнер-кейсы (обожглись вживую)
+
+**Сигнал `fetch()` живёт весь запрос, а не до первого байта.** Первую версию
+вачдога «модель молчит на старте» мы сделали через
+`AbortSignal.timeout(FIRST_BYTE_TIMEOUT_MS)`, переданный в `fetch()`. В Node
+этот сигнал остаётся привязан к запросу на всё время чтения тела — то есть
+«таймаут первого байта» на деле был **тотальным лимитом на весь ответ**: ровно
+через 60 с после старта он убивал стрим, даже когда токены активно текли
+(воспроизводится стабильно: `TimeoutError` ровно на 60.000-й секунде посреди
+ризонинга). Для reasoning-моделей, которые легко думают дольше минуты, это
+гарантированный обрыв. Правильно: отдельный `AbortController` + `setTimeout`,
+который отменяется сразу после получения заголовков; дальше работает только
+idle-вачдог тишины, сбрасываемый на каждом чанке. Тотального лимита нет
+осознанно — длинный ответ с живым потоком легитимен, подозрительна только
+тишина.
+
+**`req.on('close')` ≠ «клиент отключился» (дважды!).** В Node `req` эмитит
+`close` сразу после того, как тело запроса полностью прочитано, — подписка на
+него мгновенно обрывает апстрим. Слушать нужно `res.on('close')` с проверкой
+`!res.writableEnded`. Мы наступили на это дважды: сначала в прокси, потом —
+в тестовом моке OpenRouter, где та же подписка гасила интервал генерации
+чанков до первого тика и мок «зависал» навсегда.
+
+## Осознанные отступления от буквы ТЗ
+
+**Обводка фокуса.** ТЗ просит убрать дефолтный `outline`, потому что он выглядит
+разнобойно. Полное удаление обводки ломает навигацию с клавиатуры (Tab-пользователь
+не видит, где фокус) — а доступность в том же ТЗ требуется. Поэтому: дефолтный
+`outline` убран (`focus-visible:outline-none`), вместо него единообразное
+кастомное кольцо (`focus-visible:ring-2`). Требование выполнено по духу
+(никакого разнобоя), а не только по букве.
+
+**i18n не делаем.** Интерфейс целиком на русском, строки лежат прямо в
+компонентах — это осознанно: для одностраничного тестового слой локализации —
+лишняя сложность. Если понадобится, строки вынесутся в словарь `src/locales/`
+и хук `t()` — точек с динамическим составлением строк мало.
+
+## Что бы я сделал дальше
+
+- Выбор free-модели в UI с проверкой доступности (на сервере при этом нужен
+  вайтлист суффикса `:free` — иначе через прокси можно жечь платные модели).
+- Мок OpenRouter для воспроизведения 429/таймаута/обрыва без сжигания
+  free-лимитов — именно так проверялись все состояния ошибок.
+- Markdown в ответах, тёмная тема, тесты на `chat-api` (vitest + msw).
